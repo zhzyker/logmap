@@ -339,7 +339,7 @@ def dnslog(args, type=1, function="get", token="", md5=""):
         elif function == "verify":
             try:
                 time.sleep(2)
-                request = requests.get("http://api.ceye.io/v1/records?token=843fd6d58a8ebede756a2b991d321a5a&type=dns")
+                request = requests.get("http://api.ceye.io/v1/records?token={}&type=dns".format(args.ceye[1]))
                 return request.text
             except:
                 logger("red", "[-] http://api.ceye.io/v1/ Request failed")
