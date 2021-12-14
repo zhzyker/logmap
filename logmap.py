@@ -313,7 +313,7 @@ def dnslog(args, type=1, function="get", token="", md5=""):
     if type == 1:
         if function == "get":
             try:
-                request = requests.get("https://log.xn--9tr.com/new_gen", headers={"User-Agent": "Mozilla/5.0 (Windows NT 6.1; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/96.0.4664.45 Safari/537.36"})
+                request = requests.get("https://log.xn--9tr.com/new_gen", verify=False, headers={"User-Agent": "Mozilla/5.0 (Windows NT 6.1; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/96.0.4664.45 Safari/537.36"})
                 domain = json.loads(request.text)["domain"]
                 key = json.loads(request.text)["key"]
                 token = json.loads(request.text)["token"]
@@ -324,7 +324,7 @@ def dnslog(args, type=1, function="get", token="", md5=""):
         elif function == "verify":
             try:
                 time.sleep(2)
-                request = requests.get("https://log.xn--9tr.com/" + token)
+                request = requests.get("https://log.xn--9tr.com/" + token, verify=False)
                 if "null" not in request.text:
                     return request.text
             except:
