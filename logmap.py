@@ -99,6 +99,7 @@ def print_roundtrip(response, *args, **kwargs):
 
 def run_fuzz(target, payload, timeout, domain, token):
     path_payload_list = [
+        "",
         "/hello",
         "?id={}".format(payload),
         "?username={}".format(payload),
