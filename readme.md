@@ -1,8 +1,8 @@
-# logmap 0.4 - Log4j jndi injection fuzz tool
+# logmap 0.6 - Log4j jndi injection fuzz tool
 
 Used for fuzzing to test whether there are log4j2 jndi injection vulnerabilities in header/body/path  
 Use https://log.xn--9tr.com dnslog by default, If you want to use http://ceye.io, you need to modify the domain and token  
-Manually edit line [#463](https://github.com/zhzyker/logmap/blob/main/logmap.py#L429) in logmap.py to modify:  
+Manually edit line [#486](https://github.com/zhzyker/logmap/blob/main/logmap.py#L486) in logmap.py to modify:  
 `args.ceye = ["xxxxxx.ceye.io", "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"]`  
 to   
 `args.ceye = ["1234567.ceye.io", "843fd6d58a8ebede756a2b991d321a5a"]`  

