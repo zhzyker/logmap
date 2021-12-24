@@ -484,6 +484,5 @@ if __name__ == '__main__':
     logger("blue", "[*] From https://github.com/zhzyker/logmap")
     args = arg()
     args.ceye = ["xxxxxx.ceye.io", "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"]
-    args.ceye = ["7m7tgh.ceye.io", "843fd6d58a8ebede756a2b991d321a5a"]
     proxy(args)
     check_log4j2(args)
